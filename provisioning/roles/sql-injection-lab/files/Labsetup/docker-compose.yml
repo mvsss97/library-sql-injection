@@ -60,8 +60,14 @@ services:
         max-file: "3"
 
 networks:
+  # Réseau de bridge dédié, avec des IP fixes : les comptes MySQL de l'application
+  # sont restreints à l'IP du conteneur web (172.30.27.10).
+  #
+  # Ne PAS mettre « internal: true » ici : Docker refuse alors de publier les ports,
+  # or le TP a besoin de 127.0.0.1:80 (navigateur) et 127.0.0.1:3306 (client MySQL).
+  # Le cloisonnement vient du binding sur 127.0.0.1 : l'application vulnérable n'est
+  # jamais exposée sur le réseau de la sandbox.
   lab-internal:
-    internal: true
     ipam:
       config:
         - subnet: 172.30.27.0/24
