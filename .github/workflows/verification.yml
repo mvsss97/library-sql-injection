@@ -58,3 +58,34 @@ jobs:
         run: |
           export DEFENSE_DIR="${{ runner.temp }}/unused-defense"
           bash ci/cleanup.sh || true
+
+  provisioning:
+    name: Playbook Ansible complet sur VM simulee
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    env:
+      FLAG1: CiSqlFlagOne123
+      FLAG2: CiSqlFlagTwo456
+      FLAG3: CiSqlFlagTre789
+      FLAG4: CiSqlFlagFor012
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Installer Ansible
+        run: pip install -q "ansible==9.*"
+      - name: Flags de la sandbox
+        run: echo '{"flag_task1":"CiSqlFlagOne123","flag_task2":"CiSqlFlagTwo456","flag_task3":"CiSqlFlagTre789","flag_task4":"CiSqlFlagFor012"}' > answers.json
+      - name: Jouer le playbook
+        run: |
+          (cd provisioning && ansible-galaxy install -r requirements.yml -p roles > /dev/null)
+          ansible-playbook provisioning/playbook.yml -i ci/inventory.yml -e @answers.json -vv
+      - name: Verifications sur l'instance provisionnee
+        run: bash ci/provisioned_checks.sh
+      - name: Diagnostic en cas d'echec
+        if: failure()
+        run: |
+          sudo systemctl status seed-sqli --no-pager -l 2>&1 | head -40 || true
+          sudo docker ps -a || true
+          sudo /usr/bin/docker-compose -p seed-sqli -f /opt/seed-sqli/Labsetup/docker-compose.yml logs --no-color 2>&1 | tail -60 || true
