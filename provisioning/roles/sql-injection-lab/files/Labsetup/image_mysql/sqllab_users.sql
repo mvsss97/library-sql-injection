@@ -75,3 +75,10 @@ GRANT SELECT ON sqllab_users.* TO 'student_ro'@'%';
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
 -- Dump completed on 2015-10-25 10:57:28
+
+-- Durcissement CyberRangeCZ : l'image MySQL crée un compte root@'%' joignable
+-- depuis la VM via le port publié 127.0.0.1:3306. On le supprime pour qu'un
+-- étudiant ne puisse pas contourner le TP en se connectant en root ; l'admin
+-- dans le conteneur continue d'utiliser root@'localhost'.
+DROP USER IF EXISTS 'root'@'%';
+FLUSH PRIVILEGES;
