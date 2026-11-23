@@ -1,0 +1,425 @@
+---
+- name: Refuse to modify the management account
+  ansible.builtin.assert:
+    that:
+      - sqli_lab_user != (ansible_user | default('root'))
+    fail_msg: "The student account must differ from the topology management account."
+
+- name: Collect service facts
+  ansible.builtin.service_facts:
+
+- name: Stop host services that would occupy lab ports
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop: >-
+    {{ ansible_facts.services.keys()
+       | list
+       | intersect(['apache2.service', 'mysql.service', 'mariadb.service']) }}
+
+- name: Create the root-owned lab installation directory
+  ansible.builtin.file:
+    path: "{{ sqli_compose_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the Docker Compose lab sources
+  ansible.builtin.copy:
+    src: Labsetup/
+    dest: "{{ sqli_compose_dir }}/"
+    owner: root
+    group: root
+    directory_mode: "0755"
+    mode: preserve
+  notify: Restart SQL injection lab
+
+- name: Configure the Compose project and editable defense mount
+  ansible.builtin.copy:
+    dest: "{{ sqli_compose_dir }}/.env"
+    content: |
+      COMPOSE_PROJECT_NAME={{ sqli_compose_project }}
+      DEFENSE_DIR={{ sqli_defense_dir }}
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart SQL injection lab
+
+- name: Create the student lab directory
+  ansible.builtin.file:
+    path: "{{ sqli_lab_home }}"
+    state: directory
+    owner: "{{ sqli_lab_user }}"
+    group: "{{ sqli_lab_user }}"
+    mode: "0755"
+
+- name: Install the student quick-start guide
+  ansible.builtin.copy:
+    src: lab/README.txt
+    dest: "{{ sqli_lab_home }}/README.txt"
+    owner: "{{ sqli_lab_user }}"
+    group: "{{ sqli_lab_user }}"
+    mode: "0644"
+    force: false
+
+- name: Create the protected defense directory
+  ansible.builtin.file:
+    path: "{{ sqli_defense_dir }}"
+    state: directory
+    owner: root
+    group: "{{ sqli_lab_user }}"
+    # Group write lets editors use atomic saves.  The sticky bit prevents the
+    # student from replacing the root-owned support files in this directory.
+    mode: "1775"
+
+- name: Install protected defense support files
+  ansible.builtin.copy:
+    src: "Labsetup/image_www/Code/defense/{{ item }}"
+    dest: "{{ sqli_defense_dir }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - getinfo.php
+    - index.html
+    - style_home.css
+  notify: Restart SQL injection lab
+
+- name: Install the editable prepared-statement exercise
+  ansible.builtin.copy:
+    src: Labsetup/image_www/Code/defense/unsafe.php
+    dest: "{{ sqli_defense_dir }}/unsafe.php"
+    owner: "{{ sqli_lab_user }}"
+    group: "{{ sqli_lab_user }}"
+    mode: "0644"
+    force: false
+  notify: Restart SQL injection lab
+
+- name: Remove obsolete lab hostname mappings
+  ansible.builtin.replace:
+    path: /etc/hosts
+    regexp: '^[^\r\n]*\bwww\.seed-server\.com\b[^\r\n]*(?:\r?\n|$)'
+    replace: ''
+
+- name: Map the lab hostname to the loopback-only web service
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    line: '127.0.0.1 www.seed-server.com'
+    state: present
+
+- name: Install the SQL injection lab systemd unit
+  ansible.builtin.template:
+    src: seed-sqli.service.j2
+    dest: /etc/systemd/system/seed-sqli.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart SQL injection lab
+
+- name: Install the bounded reset command
+  ansible.builtin.template:
+    src: reset-sqllab.j2
+    dest: "{{ sqli_reset_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Apply changed runtime files before validation
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start the SQL injection lab
+  ansible.builtin.systemd:
+    name: seed-sqli.service
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Wait for the loopback web port
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 80
+    delay: 1
+    timeout: 180
+
+- name: Wait for the loopback MySQL port
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 3306
+    delay: 1
+    timeout: 180
+
+- name: Wait for the application and database readiness endpoint
+  ansible.builtin.uri:
+    url: http://127.0.0.1/healthz.php
+    headers:
+      Host: www.seed-server.com
+    return_content: true
+    status_code: 200
+  register: sqli_health
+  retries: 60
+  delay: 2
+  until:
+    - sqli_health.status == 200
+    - sqli_health.content == "ok\n"
+
+- name: Verify the read-only student database account
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/mysql
+      - --protocol=TCP
+      - --host=127.0.0.1
+      - --port=3306
+      - --user=student_ro
+      - --password=dees
+      - --skip-column-names
+      - --batch
+      - --execute=SELECT COUNT(*) FROM credential; SHOW GRANTS FOR CURRENT_USER;
+      - sqllab_users
+  register: sqli_student_db
+  changed_when: false
+  no_log: true
+
+- name: Assert the baseline data and student grants
+  ansible.builtin.assert:
+    that:
+      - sqli_student_db.stdout_lines[0] == '6'
+      - "'SELECT' in sqli_student_db.stdout"
+      - "'UPDATE' not in sqli_student_db.stdout"
+      - "'INSERT' not in sqli_student_db.stdout"
+      - "'DELETE' not in sqli_student_db.stdout"
+    fail_msg: "The SQL lab baseline or read-only grants are invalid."
+    quiet: true
+
+- name: Verify application database accounts are origin-limited
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/docker-compose
+      - -p
+      - "{{ sqli_compose_project }}"
+      - -f
+      - "{{ sqli_compose_dir }}/docker-compose.yml"
+      - exec
+      - -T
+      - mysql
+      - mysql
+      - -uroot
+      - -pdees
+      - --skip-column-names
+      - --batch
+      - --execute=SELECT User, Host FROM mysql.user WHERE User IN ('seed','defense_ro') ORDER BY User;
+  register: sqli_app_accounts
+  changed_when: false
+  no_log: true
+
+- name: Assert application database accounts stay on the private subnet
+  ansible.builtin.assert:
+    that:
+      - sqli_app_accounts.stdout_lines | length == 2
+      - sqli_app_accounts.stdout_lines[0].split() == ['defense_ro', '172.30.27.10']
+      - sqli_app_accounts.stdout_lines[1].split() == ['seed', '172.30.27.10']
+    fail_msg: "The web database accounts are not restricted to the web container IP."
+    quiet: true
+
+- name: Confirm the host cannot reuse privileged database accounts
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/mysql
+      - --protocol=TCP
+      - --host=127.0.0.1
+      - --port=3306
+      - "--user={{ item }}"
+      - --password=dees
+      - --execute=SELECT 1;
+      - sqllab_users
+  register: sqli_host_seed_attempt
+  loop:
+    - seed
+    - root
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Assert privileged database accounts are rejected from the host
+  ansible.builtin.assert:
+    that:
+      - sqli_host_seed_attempt.results | selectattr('rc', 'equalto', 0) | list | length == 0
+    fail_msg: "The host can reuse a write-capable or root database account."
+    quiet: true
+
+# The generated checker contains only masked flags.  Plaintext values exist
+# briefly in a root-only JSON file and the entire build directory is removed in
+# the always block, including on compilation failure.
+- name: Build the per-sandbox checker
+  block:
+    - name: Create the private checker build directory
+      ansible.builtin.file:
+        path: /root/.sqllab-build
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Copy checker build sources
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: "/root/.sqllab-build/{{ item }}"
+        owner: root
+        group: root
+        mode: "0600"
+      loop:
+        - build_checker.py
+        - sqllab.c
+
+    - name: Write checker flags privately
+      ansible.builtin.copy:
+        dest: /root/.sqllab-build/flags.json
+        content: >-
+          {{ {
+            'flag_task1': sqli_flag_task1,
+            'flag_task2': sqli_flag_task2,
+            'flag_task3': sqli_flag_task3,
+            'flag_task4': sqli_flag_task4
+          } | to_json }}
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
+    - name: Compile and install the checker
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - /root/.sqllab-build/build_checker.py
+          - --flags-file
+          - /root/.sqllab-build/flags.json
+          - --source
+          - /root/.sqllab-build/sqllab.c
+          - --output
+          - "{{ sqli_checker_path }}"
+          - --owner
+          - root
+          - --group
+          - root
+          - --defense-source
+          - "{{ sqli_defense_dir }}/unsafe.php"
+      changed_when: true
+      no_log: true
+
+  always:
+    - name: Remove the private checker build directory
+      ansible.builtin.file:
+        path: /root/.sqllab-build
+        state: absent
+
+- name: Run the checker self-test as root
+  ansible.builtin.command:
+    argv: ["{{ sqli_checker_path }}", "--selftest"]
+  register: sqli_selftest
+  changed_when: false
+  no_log: true
+
+- name: Verify all checker flags
+  ansible.builtin.assert:
+    that:
+      - sqli_selftest.stdout_lines == [sqli_flag_task1 | hash('sha256'), sqli_flag_task2 | hash('sha256'), sqli_flag_task3 | hash('sha256'), sqli_flag_task4 | hash('sha256')]
+    fail_msg: "The checker does not contain the four expected sandbox flags."
+    quiet: true
+  no_log: true
+
+- name: Inspect checker permissions
+  ansible.builtin.stat:
+    path: "{{ sqli_checker_path }}"
+  register: sqli_checker_stat
+
+- name: Assert checker is root-owned and execute-only for students
+  ansible.builtin.assert:
+    that:
+      - sqli_checker_stat.stat.exists
+      - sqli_checker_stat.stat.mode == '4711'
+      - sqli_checker_stat.stat.pw_name == 'root'
+      - sqli_checker_stat.stat.gr_name == 'root'
+
+- name: Remove inherited administration rights from the student account
+  when: sqli_remove_admin_rights | bool
+  block:
+    - name: Collect local groups
+      ansible.builtin.getent:
+        database: group
+
+    - name: Remove the student from privileged groups
+      ansible.builtin.command:
+        argv: [gpasswd, -d, "{{ sqli_lab_user }}", "{{ item }}"]
+      loop: "{{ sqli_privileged_groups }}"
+      when:
+        - item in ansible_facts.getent_group
+        - sqli_lab_user in (ansible_facts.getent_group[item][2] | default('', true)).split(',')
+      register: sqli_group_cleanup
+      changed_when: true
+
+    - name: Find sudoers drop-in files
+      ansible.builtin.find:
+        paths: /etc/sudoers.d
+        file_type: file
+        excludes: 90-seed-sqllab-reset
+      register: sqli_sudoers_files
+
+    - name: Remove existing sudo rules naming the student
+      ansible.builtin.lineinfile:
+        path: "{{ item }}"
+        regexp: '^\s*{{ sqli_lab_user }}\s'
+        state: absent
+        validate: /usr/sbin/visudo -cf %s
+      loop: "{{ ['/etc/sudoers'] + (sqli_sudoers_files.files | map(attribute='path') | list) }}"
+      register: sqli_sudoers_cleanup
+
+    - name: Close sessions that retain former privileged groups
+      ansible.builtin.command:
+        argv: [pkill, -KILL, -u, "{{ sqli_lab_user }}"]
+      register: sqli_pkill
+      changed_when: sqli_pkill.rc == 0
+      failed_when: sqli_pkill.rc > 1
+      when: sqli_group_cleanup is changed or sqli_sudoers_cleanup is changed
+      notify: Restart display manager
+
+- name: Permit only the bounded reset command through sudo
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/90-seed-sqllab-reset
+    content: |
+      {{ sqli_lab_user }} ALL=(root) NOPASSWD: {{ sqli_reset_path }} ""
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+
+- name: List final student sudo rights
+  ansible.builtin.command:
+    argv: [sudo, -l, -U, "{{ sqli_lab_user }}"]
+  environment:
+    LC_ALL: C
+    LANG: C
+    LANGUAGE: C
+  register: sqli_sudo_rights
+  changed_when: false
+
+- name: Assert the student has only the reset sudo rule
+  ansible.builtin.assert:
+    that:
+      - sqli_reset_path in sqli_sudo_rights.stdout
+      - "'/usr/bin/docker' not in sqli_sudo_rights.stdout"
+      - "'(ALL : ALL) ALL' not in sqli_sudo_rights.stdout"
+      - "'(ALL) ALL' not in sqli_sudo_rights.stdout"
+    fail_msg: "The student account still has broader sudo rights."
+
+- name: Verify the editable defense file ownership
+  ansible.builtin.stat:
+    path: "{{ sqli_defense_dir }}/unsafe.php"
+  register: sqli_defense_stat
+
+- name: Assert only the exercise file belongs to the student
+  ansible.builtin.assert:
+    that:
+      - sqli_defense_stat.stat.exists
+      - sqli_defense_stat.stat.pw_name == sqli_lab_user
+      - sqli_defense_stat.stat.mode == '0644'

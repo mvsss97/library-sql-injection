@@ -1,0 +1,35 @@
+#!/bin/bash
+set -euo pipefail
+
+if [[ "$#" -ne 0 ]]; then
+    echo "Usage: sudo reset-sqllab" >&2
+    exit 64
+fi
+
+compose_dir={{ sqli_compose_dir | quote }}
+project={{ sqli_compose_project | quote }}
+student={{ sqli_lab_user | quote }}
+defense_dir={{ sqli_defense_dir | quote }}
+starter="$compose_dir/image_www/Code/defense/unsafe.php"
+
+cd "$compose_dir"
+/usr/bin/docker-compose -p "$project" -f "$compose_dir/docker-compose.yml" down --volumes --remove-orphans
+
+# Restore only the file the student is expected to edit.  The containing
+# directory and the other defense files remain root-owned.
+/usr/bin/install -o "$student" -g "$student" -m 0644 "$starter" "$defense_dir/unsafe.php"
+
+/usr/bin/systemctl restart seed-sqli.service
+
+for attempt in $(seq 1 60); do
+    if /usr/bin/curl --fail --silent --show-error \
+        -H 'Host: www.seed-server.com' \
+        http://127.0.0.1/healthz.php >/dev/null; then
+        echo "Le lab SQL injection a ete reinitialise."
+        exit 0
+    fi
+    /usr/bin/sleep 2
+done
+
+echo "Le lab n'est pas redevenu pret dans le delai imparti." >&2
+exit 1

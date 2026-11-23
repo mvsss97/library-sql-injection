@@ -1,0 +1,41 @@
+# SEED Lab "SQL Injection Attack" for CyberRangeCZ.
+#
+# The browser, MySQL client and Docker Compose stack all run on the dedicated
+# SEED VM.  The Docker web port is bound to 127.0.0.1, so the intentionally
+# vulnerable application is never exposed on the sandbox network.
+
+name: library-sql-injection
+
+hosts:
+  - name: seed
+    base_box:
+      image: seed
+      mgmt_user: ubuntu
+    flavor: m1.medium
+
+routers:
+  - name: router
+    base_box:
+      image: debian-12-x86_64
+      mgmt_user: debian
+    flavor: m1.medium
+
+wan:
+  name: internet-connection
+  cidr: 100.100.100.0/24
+
+networks:
+  - name: lab-switch
+    cidr: 10.1.28.0/24
+
+net_mappings:
+  - host: seed
+    network: lab-switch
+    ip: 10.1.28.10
+
+router_mappings:
+  - router: router
+    network: lab-switch
+    ip: 10.1.28.1
+
+groups: []

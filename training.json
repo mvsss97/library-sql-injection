@@ -1,0 +1,216 @@
+{
+  "title": "SEED Lab - SQL Injection Attack",
+  "description": "Adaptation CyberRangeCZ du SEED Lab « SQL Injection Attack » : requêtes SQL, contournement d'authentification par injection sur SELECT, modification de profils par injection sur UPDATE et défense avec des requêtes préparées. Quatre flags uniques sont générés pour chaque sandbox.",
+  "prerequisites": [
+    "Bases de la ligne de commande Linux",
+    "Notions élémentaires de SQL (SELECT, UPDATE et WHERE)",
+    "Notions de HTTP, d'URL et de formulaire Web",
+    "Lecture élémentaire de code PHP"
+  ],
+  "outcomes": [
+    "Interroger une base MySQL et filtrer une ligne avec WHERE.",
+    "Expliquer comment la concaténation d'une entrée utilisateur modifie la structure d'une requête SQL.",
+    "Contourner une authentification vulnérable depuis un navigateur et avec curl.",
+    "Exploiter une injection sur UPDATE pour démontrer une atteinte à l'intégrité.",
+    "Expliquer pourquoi mysqli::query() n'exécute pas une pile de plusieurs instructions.",
+    "Corriger une injection SQL avec prepare(), bind_param() et execute()."
+  ],
+  "state": "UNRELEASED",
+  "show_stepper_bar": true,
+  "estimated_duration": 130,
+  "variant_sandboxes": true,
+  "levels": [
+    {
+      "title": "Introduction",
+      "level_type": "INFO_LEVEL",
+      "order": 0,
+      "estimated_duration": 5,
+      "minimal_possible_solve_time": null,
+      "content": "# SEED Lab : SQL Injection Attack\n\nUne injection SQL apparaît lorsqu'une application mélange une entrée utilisateur avec le code d'une requête. Le serveur de base de données ne peut alors plus distinguer les données prévues du code ajouté par l'attaquant.\n\nDans ce laboratoire isolé, vous étudierez une application de gestion d'employés volontairement vulnérable :\n\n| Tâche | Sujet | Points |\n|---:|---|---:|\n| 1 | Requêtes SQL de base et fiche d'Alice | 20 |\n| 2 | Injection sur `SELECT` depuis le Web et `curl` | 60 |\n| 3 | Injection sur `UPDATE` | 80 |\n| 4 | Défense par requête préparée | 40 |\n\n**Total : 200 points = 20/20.** Votre note sur 20 est le score divisé par 10. Les indices retirent des points. Afficher la solution d'un niveau annule les points de ce niveau.\n\n## Règles\n\n- Vos quatre flags sont uniques à votre sandbox et sensibles à la casse.\n- Travaillez uniquement dans la sandbox fournie. Toute attaque d'un système sans autorisation est interdite.\n- Le compte `seed` ne possède ni sudo général ni accès Docker.\n- La seule commande administrative autorisée est `sudo reset-sqllab`, qui remet le laboratoire à zéro sans ouvrir de shell root.\n- Les réponses soumises et les commandes de la sandbox peuvent être journalisées par la plateforme.\n- Un compte rendu détaillé avec captures, requêtes et explications est obligatoire.\n\nCe parcours adapte le *SEED Labs – SQL Injection Attack Lab* de Wenliang Du, sous licence CC BY-NC-SA 4.0."
+    },
+    {
+      "title": "Accès à la sandbox",
+      "level_type": "ACCESS_LEVEL",
+      "order": 1,
+      "estimated_duration": 5,
+      "minimal_possible_solve_time": null,
+      "passkey": "start",
+      "cloud_content": "La sandbox contient une VM **`seed`**. Toutes les attaques restent à l'intérieur de cette VM.\n\n1. Dans la topologie, ouvrez la console graphique de `seed`.\n2. Connectez-vous avec l'utilisateur **`seed`** et le mot de passe **`dees`**.\n3. Ouvrez un terminal et lisez `~/lab/README.txt`.\n4. Dans le navigateur de la VM, ouvrez **http://www.seed-server.com**.\n5. Vérifiez le service avec `curl -I http://www.seed-server.com/`.\n\nPour les requêtes SQL de la tâche 1, utilisez le compte en lecture seule :\n\n```bash\nmysql -h 127.0.0.1 -u student_ro -pdees sqllab_users\n```\n\nCe compte peut lire les données, mais ne peut pas les modifier. Vous n'avez besoin d'aucune commande Docker.\n\nSi une injection endommage l'état du TP, exécutez `sudo reset-sqllab`. Cette commande efface votre progression locale sur les tâches 3 et 4.\n\nLorsque le site et le terminal sont accessibles, soumettez **`start`**.",
+      "local_content": "Ce scénario doit être validé dans une sandbox CyberRangeCZ disposant des images et services prévus. Aucune compatibilité avec une sandbox locale différente n'est garantie."
+    },
+    {
+      "title": "Tâche 1 : se familiariser avec SQL",
+      "level_type": "TRAINING_LEVEL",
+      "order": 2,
+      "estimated_duration": 15,
+      "minimal_possible_solve_time": null,
+      "answer": null,
+      "answer_variable_name": "flag_task1",
+      "content": "La base **`sqllab_users`** contient une table **`credential`** utilisée par l'application de gestion des employés.\n\nConnectez-vous avec le compte MySQL en lecture seule :\n\n```bash\nmysql -h 127.0.0.1 -u student_ro -pdees sqllab_users\n```\n\nPuis :\n\n1. affichez les tables de la base ;\n2. inspectez les colonnes de `credential` ;\n3. écrivez une requête `SELECT` avec une clause `WHERE` qui n'affiche que le profil d'**Alice** ;\n4. relevez son EID, son salaire et son SSN ;\n5. lancez `sqllab check 1` et répondez aux questions.\n\nLe validateur révèle le flag seulement si les valeurs correspondent à la base active.\n\nDans le compte rendu, ajoutez la requête, une capture du résultat et une courte explication de la clause `WHERE`.",
+      "solution": "Dans le client MySQL :\n\n```sql\nSHOW TABLES;\nDESCRIBE credential;\nSELECT * FROM credential WHERE Name='Alice';\n```\n\nRelevez les valeurs demandées, puis exécutez :\n\n```bash\nsqllab check 1\n```\n\nAprès validation, le programme affiche **`${ANSWER}`**.\n\nLa clause `WHERE Name='Alice'` filtre la table et évite d'afficher les autres employés. Le compte `student_ro` est volontairement limité à `SELECT` : une tentative directe d'`UPDATE` doit être refusée.",
+      "solution_penalized": true,
+      "hints": [
+        {
+          "title": "Choisir la base et voir ses tables",
+          "content": "Utilisez `USE sqllab_users;` si vous n'avez pas indiqué la base sur la ligne de commande, puis `SHOW TABLES;`.",
+          "hint_penalty": 2,
+          "order": 0
+        },
+        {
+          "title": "Inspecter les colonnes",
+          "content": "`DESCRIBE credential;` ou `SHOW COLUMNS FROM credential;` affiche les noms exacts des colonnes.",
+          "hint_penalty": 3,
+          "order": 1
+        },
+        {
+          "title": "Filtrer sur Alice",
+          "content": "La forme recherchée est `SELECT ... FROM credential WHERE Name='Alice';`.",
+          "hint_penalty": 5,
+          "order": 2
+        }
+      ],
+      "incorrect_answer_limit": 20,
+      "attachments": [],
+      "max_score": 20,
+      "variant_answers": true,
+      "reference_solution": [],
+      "mitre_techniques": [],
+      "expected_commands": [],
+      "commands_required": false
+    },
+    {
+      "title": "Tâche 2 : injection SQL sur SELECT",
+      "level_type": "TRAINING_LEVEL",
+      "order": 3,
+      "estimated_duration": 30,
+      "minimal_possible_solve_time": null,
+      "answer": null,
+      "answer_variable_name": "flag_task2",
+      "content": "La page de connexion construit une requête en concaténant le nom saisi :\n\n```sql\nSELECT id, name, eid, salary, birth, ssn, address, email, nickname, Password\nFROM credential\nWHERE name='$input_uname' AND Password='$hashed_pwd';\n```\n\nVous connaissez le nom du compte **Admin**, mais pas son mot de passe.\n\n## 2.1 — Depuis le navigateur\n\nTrouvez une valeur de nom d'utilisateur qui ferme la chaîne, conserve la condition sur Admin et transforme le reste de la requête en commentaire. Connectez-vous et capturez la vue qui affiche tous les employés.\n\n## 2.2 — Depuis la ligne de commande\n\nReproduisez l'attaque avec `curl` sur `unsafe_home.php`. L'URL complète doit être entourée d'apostrophes pour que le shell n'interprète pas `&`. Encodez les caractères spéciaux de votre charge utile (`%27` pour une apostrophe, `%20` pour un espace et `%23` pour `#`).\n\n## 2.3 — Requêtes empilées\n\nEssayez de terminer le `SELECT` par `;` puis d'ajouter un `UPDATE`. Observez le résultat et expliquez pourquoi la deuxième instruction n'est pas exécutée. Comparez `mysqli::query()` à une API explicitement multi-requêtes.\n\nEnfin, lancez **`sqllab check 2`** et fournissez la charge utile URL-encodée demandée. Le validateur l'envoie à l'application et vérifie qu'elle atteint réellement la vue Admin.\n\nLe compte rendu doit contenir les deux attaques, la requête SQL reconstituée et l'explication de la sous-tâche 2.3.",
+      "solution": "Une charge utile possible dans le champ utilisateur est :\n\n```text\nAdmin' #\n```\n\nAprès substitution, la fin contenant le mot de passe est commentée. Pour `curl`, encodez la charge utile :\n\n```bash\ncurl 'http://www.seed-server.com/unsafe_home.php?username=Admin%27%20%23&Password=x'\n```\n\nVérifiez que la réponse correspond à la vue Admin, puis utilisez la valeur URL-encodée demandée par :\n\n```bash\nsqllab check 2\n```\n\nLe flag affiché est **`${ANSWER}`**.\n\nLa tentative de requêtes empilées est bloquée parce que `mysqli::query()` exécute une seule instruction. Une application devrait appeler une interface distincte telle que `multi_query()` pour accepter plusieurs instructions, ce qu'elle ne fait pas ici.",
+      "solution_penalized": true,
+      "hints": [
+        {
+          "title": "Neutraliser le mot de passe",
+          "content": "Fermez la chaîne après `Admin`, puis utilisez le commentaire MySQL `#`. Un espace après le caractère de commentaire rend la charge utile plus claire.",
+          "hint_penalty": 5,
+          "order": 0
+        },
+        {
+          "title": "Encoder la charge utile pour curl",
+          "content": "Encodez l'apostrophe en `%27`, l'espace en `%20` et `#` en `%23`. Entourez l'URL complète d'apostrophes pour protéger le séparateur `&` du shell.",
+          "hint_penalty": 10,
+          "order": 1
+        },
+        {
+          "title": "Comprendre l'échec de la deuxième instruction",
+          "content": "Cherchez la différence entre `mysqli::query()` et `mysqli::multi_query()`. Le point-virgule ne suffit pas si l'API cliente refuse plusieurs instructions.",
+          "hint_penalty": 15,
+          "order": 2
+        }
+      ],
+      "incorrect_answer_limit": 20,
+      "attachments": [],
+      "max_score": 60,
+      "variant_answers": true,
+      "reference_solution": [],
+      "mitre_techniques": [],
+      "expected_commands": [],
+      "commands_required": false
+    },
+    {
+      "title": "Tâche 3 : injection SQL sur UPDATE",
+      "level_type": "TRAINING_LEVEL",
+      "order": 4,
+      "estimated_duration": 40,
+      "minimal_possible_solve_time": null,
+      "answer": null,
+      "answer_variable_name": "flag_task3",
+      "content": "Connectez-vous légitimement comme **Alice** avec le mot de passe **`seedalice`**, puis ouvrez *Edit Profile*.\n\nLe backend concatène plusieurs champs dans une requête comparable à :\n\n```sql\nUPDATE credential SET\n  nickname='$input_nickname',\n  email='$input_email',\n  address='$input_address',\n  Password='$hashed_pwd',\n  PhoneNumber='$input_phonenumber'\nWHERE ID=$id;\n```\n\nUne valeur injectée peut fermer une affectation, en ajouter une autre, remplacer la clause `WHERE`, puis commenter la fin originale.\n\nRéalisez les trois objectifs suivants :\n\n1. augmentez le salaire d'Alice ;\n2. fixez le salaire de **Boby** à **1** ;\n3. choisissez un nouveau mot de passe pour Boby, calculez son SHA-1, placez ce hash dans sa ligne, puis prouvez la modification en vous connectant comme Boby avec le mot de passe en clair.\n\nCiblez toujours explicitement la bonne ligne. Une charge utile sans `WHERE` peut modifier tous les employés.\n\nLancez ensuite **`sqllab check 3`**. Le validateur vérifie les salaires, vous demande le nouveau mot de passe de Boby, compare son SHA-1 et confirme l'authentification.\n\nSi vous avez modifié trop de lignes, utilisez `sudo reset-sqllab`, reconnectez-vous comme Alice et recommencez. Le reset efface la progression locale des tâches 3 et 4.",
+      "solution": "Le champ `NickName` peut servir à reconstruire l'`UPDATE`. Adaptez les valeurs à votre expérimentation.\n\nPour Alice, une forme possible est :\n\n```text\nAlice', Salary=60000 WHERE Name='Alice' #\n```\n\nPour Boby :\n\n```text\nAlice', Salary=1 WHERE Name='Boby' #\n```\n\nChoisissez ensuite un nouveau mot de passe et calculez son SHA-1 sans ajouter de saut de ligne :\n\n```bash\nprintf %s 'VotreNouveauMotDePasse' | sha1sum\n```\n\nInjectez le hash obtenu :\n\n```text\nAlice', Password='HASH_SHA1' WHERE Name='Boby' #\n```\n\nDéconnectez-vous, connectez-vous comme Boby avec le mot de passe en clair, puis lancez :\n\n```bash\nsqllab check 3\n```\n\nSaisissez le même mot de passe lorsque le checker le demande. Après validation, il affiche **`${ANSWER}`**.",
+      "solution_penalized": true,
+      "hints": [
+        {
+          "title": "Choisir un champ injectable",
+          "content": "Le contenu de `NickName` est placé directement entre apostrophes au début de la clause `SET`. Fermez cette valeur avant d'ajouter une nouvelle affectation.",
+          "hint_penalty": 5,
+          "order": 0
+        },
+        {
+          "title": "Ne modifier qu'une ligne",
+          "content": "Ajoutez votre propre `WHERE Name='Alice'` ou `WHERE Name='Boby'`, puis commentez toute la fin de la requête d'origine.",
+          "hint_penalty": 10,
+          "order": 1
+        },
+        {
+          "title": "Cibler le salaire de Boby",
+          "content": "La partie ajoutée doit contenir `Salary=1 WHERE Name='Boby'` avant le commentaire.",
+          "hint_penalty": 10,
+          "order": 2
+        },
+        {
+          "title": "Changer correctement un mot de passe",
+          "content": "La colonne stocke un SHA-1 hexadécimal, pas le texte en clair. Calculez-le avec `printf %s 'mot-de-passe' | sha1sum`, injectez le hash, puis connectez-vous avec le texte d'origine.",
+          "hint_penalty": 15,
+          "order": 3
+        }
+      ],
+      "incorrect_answer_limit": 20,
+      "attachments": [],
+      "max_score": 80,
+      "variant_answers": true,
+      "reference_solution": [],
+      "mitre_techniques": [],
+      "expected_commands": [],
+      "commands_required": false
+    },
+    {
+      "title": "Tâche 4 : défense par requête préparée",
+      "level_type": "TRAINING_LEVEL",
+      "order": 5,
+      "estimated_duration": 30,
+      "minimal_possible_solve_time": null,
+      "answer": null,
+      "answer_variable_name": "flag_task4",
+      "content": "La vulnérabilité vient de la confusion entre **code SQL** et **données**. Une requête préparée envoie d'abord la structure SQL avec des placeholders, puis lie séparément les valeurs.\n\nLa version simplifiée à corriger se trouve dans :\n\n```text\n~/lab/defense/unsafe.php\n```\n\nCe fichier est monté directement dans l'application. Modifiez-le avec `nano` ou `vim` ; aucun accès Docker et aucune reconstruction d'image ne sont nécessaires.\n\nRemplacez la concaténation par :\n\n1. `prepare()` avec deux placeholders `?` ;\n2. `bind_param(\"ss\", ...)` pour le nom et le hash du mot de passe ;\n3. `execute()` ;\n4. une lecture sûre de la première ligne retournée.\n\nTestez ensuite :\n\n- un login légitime, par exemple Alice / `seedalice`, qui doit encore fonctionner ;\n- la charge utile de la tâche 2, qui doit maintenant être traitée comme une simple chaîne et échouer.\n\nLancez enfin **`sqllab check 4`**. Le validateur contrôle le comportement et la présence du mécanisme de requête préparée avant d'afficher le flag.\n\nLe compte rendu doit montrer le code corrigé et comparer les deux tests avant/après.",
+      "solution": "Le cœur de la correction peut être écrit ainsi :\n\n```php\n$statement = $connection->prepare(\n    \"SELECT id, name, eid, salary, ssn\n     FROM credential\n     WHERE name = ? AND Password = ?\"\n);\n$statement->bind_param(\"ss\", $inputUsername, $hashedPassword);\n$statement->execute();\n$statement->bind_result($id, $name, $eid, $salary, $ssn);\n$statement->fetch();\n$statement->close();\n```\n\nConservez la connexion et le calcul de `$hashedPassword` déjà présents, puis vérifiez la page avec des identifiants légitimes et avec l'ancienne injection.\n\n```bash\nsqllab check 4\n```\n\nAprès validation, le programme affiche **`${ANSWER}`**.\n\nL'entrée malveillante n'est plus reparsée comme du SQL : elle est liée au placeholder comme une valeur de chaîne.",
+      "solution_penalized": true,
+      "hints": [
+        {
+          "title": "Séparer la structure et les valeurs",
+          "content": "La chaîne passée à `prepare()` doit contenir `name = ? AND Password = ?`, sans concaténer les variables utilisateur.",
+          "hint_penalty": 5,
+          "order": 0
+        },
+        {
+          "title": "Lier les deux chaînes",
+          "content": "Utilisez `$statement->bind_param(\"ss\", $inputUsername, $hashedPassword);` puis `$statement->execute();`.",
+          "hint_penalty": 10,
+          "order": 1
+        },
+        {
+          "title": "Récupérer le résultat",
+          "content": "Vous pouvez utiliser `bind_result($id, $name, $eid, $salary, $ssn)` puis `fetch()`. Vérifiez qu'Alice fonctionne encore avant de tester l'injection.",
+          "hint_penalty": 10,
+          "order": 2
+        }
+      ],
+      "incorrect_answer_limit": 20,
+      "attachments": [],
+      "max_score": 40,
+      "variant_answers": true,
+      "reference_solution": [],
+      "mitre_techniques": [],
+      "expected_commands": [],
+      "commands_required": false
+    },
+    {
+      "title": "Compte rendu",
+      "level_type": "INFO_LEVEL",
+      "order": 6,
+      "estimated_duration": 5,
+      "minimal_possible_solve_time": null,
+      "content": "# Compte rendu à remettre\n\nRemettez un document structuré par tâche. Pour chaque attaque ou correction, fournissez :\n\n- l'objectif ;\n- les commandes, requêtes ou charges utiles importantes ;\n- une capture lisible avec le contexte visible ;\n- la requête SQL résultante ;\n- ce que vous avez observé ;\n- pourquoi ce résultat se produit.\n\nLe rapport doit notamment inclure :\n\n1. la requête `SELECT` filtrée sur Alice ;\n2. le contournement Admin dans le navigateur et avec `curl` ;\n3. l'explication de l'échec des requêtes empilées avec `mysqli::query()` ;\n4. les trois modifications de la tâche 3 et la connexion réussie comme Boby ;\n5. le code préparé de la tâche 4, un login légitime réussi et l'ancienne injection refusée ;\n6. une conclusion sur la séparation entre code et données.\n\nUne suite de captures ou de code sans explication ne reçoit pas tous les points. Ne placez aucun vrai secret personnel dans le rendu."
+    }
+  ]
+}

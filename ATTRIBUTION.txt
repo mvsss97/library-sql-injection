@@ -1,0 +1,54 @@
+SEED Labs educational content
+==============================
+
+This training is an adaptation of:
+
+  "SEED Labs - SQL Injection Attack Lab"
+  Copyright © 2006 - 2020 by Wenliang Du.
+  https://seedsecuritylabs.org/Labs_20.04/Web/Web_SQL_Injection/
+
+The original notice states: "This work is licensed under a Creative Commons
+Attribution-NonCommercial-ShareAlike 4.0 International License. If you remix,
+transform, or build upon the material, this copyright notice must be left
+intact, or reproduced in a way that is reasonable to the medium in which the
+work is being re-published."
+
+The original educational material and this adapted pedagogical content are
+therefore licensed under CC BY-NC-SA 4.0:
+
+  https://creativecommons.org/licenses/by-nc-sa/4.0/
+
+The original copyright notice is retained. Changes made for this adaptation
+include French-language instructions, CyberRangeCZ integration, per-sandbox
+flags, automated validation, a restricted student account, and a simplified
+single-VM deployment. These changes do not imply endorsement by Wenliang Du or
+the SEED project.
+
+The bundled employee-management application retains its original file headers
+crediting Kailiang Ying and the 2018 interface enhancement by Kuber Kohli. The
+SEED logo remains an asset of the SEED project.
+
+Bundled third-party asset
+=========================
+
+The application includes Bootstrap 4.0.0, Copyright 2011-2018 The Bootstrap
+Authors and Twitter, Inc., under the MIT License. Its upstream license notice
+is retained in css/bootstrap.min.css.
+
+Technical structure
+===================
+
+The CyberRangeCZ repository layout and provisioning conventions are adapted
+from the public CyberRangeCZ training-library pattern, including:
+
+  library-junior-hacker
+  Cybersecurity Laboratory, Faculty of Informatics, Masaryk University
+  https://github.com/cyberrangecz/library-junior-hacker
+
+Original repository code
+========================
+
+Code written specifically for this repository, including its Ansible
+provisioning and checker, is licensed under the MIT License unless a file says
+otherwise. The MIT License does not replace or relicense SEED Labs material.
+See LICENSE, LICENSES/MIT.txt, and LICENSES/CC-BY-NC-SA-4.0.txt.

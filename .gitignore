@@ -1,0 +1,40 @@
+# Ansible roles downloaded from requirements.yml
+provisioning/roles/user-access/
+provisioning/roles/sandbox-logging/
+provisioning/roles/sandbox-logging-*/
+
+# Runtime state and generated lab data
+Labsetup/mysql_data/
+provisioning/roles/sql-injection-lab/files/Labsetup/mysql_data/
+mysql_data/
+runtime/
+out/
+lab-test/
+*.retry
+
+# Generated secrets, flags, and checker artifacts
+*.secret
+*.secrets
+flags.json
+salt
+*.salt
+sqllab
+sqllab.exe
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Editors and operating systems
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+

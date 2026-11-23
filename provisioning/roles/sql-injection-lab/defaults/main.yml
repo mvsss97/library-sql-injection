@@ -1,0 +1,26 @@
+---
+sqli_lab_user: seed
+sqli_lab_home: "/home/{{ sqli_lab_user }}/lab"
+sqli_defense_dir: "{{ sqli_lab_home }}/defense"
+sqli_install_root: /opt/seed-sqli
+sqli_compose_dir: "{{ sqli_install_root }}/Labsetup"
+sqli_compose_project: seed-sqli
+sqli_checker_path: /usr/local/bin/sqllab
+sqli_reset_path: /usr/local/sbin/reset-sqllab
+
+sqli_flag_task1: LocalSqlTask1
+sqli_flag_task2: LocalSqlTask2
+sqli_flag_task3: LocalSqlTask3
+sqli_flag_task4: LocalSqlTask4
+
+sqli_remove_admin_rights: true
+sqli_privileged_groups:
+  - sudo
+  - admin
+  - wheel
+  - adm
+  - docker
+  - lxd
+  - disk
+  - libvirt
+  - systemd-journal

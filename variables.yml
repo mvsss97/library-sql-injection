@@ -1,0 +1,18 @@
+# Per-sandbox APG answers.  CyberRangeCZ passes these values to Ansible and
+# stores the same values as the expected answers for variant training levels.
+
+flag_task1:
+  type: password
+  length: 12
+
+flag_task2:
+  type: password
+  length: 12
+
+flag_task3:
+  type: password
+  length: 12
+
+flag_task4:
+  type: password
+  length: 12

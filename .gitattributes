@@ -1,0 +1,10 @@
+# Keep provisioning, shell, source, JSON, and YAML files Linux-friendly.
+* text=auto eol=lf
+
+# Preserve binary assets byte-for-byte.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+

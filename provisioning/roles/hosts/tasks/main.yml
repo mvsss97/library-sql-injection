@@ -1,0 +1,70 @@
+---
+- name: Define SQL injection lab packages
+  ansible.builtin.set_fact:
+    hosts_packages:
+      - build-essential
+      - curl
+      - default-mysql-client
+      - libcurl4-openssl-dev
+      - libssl-dev
+      - nano
+      - python3
+      - vim
+
+- name: Check for the Docker CLI at the stable system path
+  ansible.builtin.stat:
+    path: /usr/bin/docker
+  register: hosts_docker_cli
+
+- name: Check for Docker Compose at the stable system path
+  ansible.builtin.stat:
+    path: /usr/bin/docker-compose
+  register: hosts_compose_cli
+
+- name: Add missing container runtime packages
+  ansible.builtin.set_fact:
+    hosts_packages: >-
+      {{ hosts_packages
+         + ([] if hosts_docker_cli.stat.exists else ['docker.io'])
+         + ([] if hosts_compose_cli.stat.exists else ['docker-compose']) }}
+
+- name: List installed packages
+  ansible.builtin.command:
+    argv: [dpkg-query, -W, "-f=${db:Status-Abbrev} ${Package}\\n"]
+  register: hosts_dpkg
+  changed_when: false
+
+- name: Find missing SQL injection lab packages
+  ansible.builtin.set_fact:
+    hosts_missing_packages: >-
+      {{ hosts_packages
+         | difference(hosts_dpkg.stdout_lines
+         | select('match', '^.i')
+         | map('split')
+         | map('last')
+         | list) }}
+
+- name: Install missing SQL injection lab packages
+  when: hosts_missing_packages | length > 0
+  block:
+    - name: Update APT cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+        lock_timeout: 600
+
+    - name: Install lab packages
+      ansible.builtin.apt:
+        name: "{{ hosts_missing_packages }}"
+        state: present
+        lock_timeout: 600
+
+- name: Enable and start Docker
+  ansible.builtin.service:
+    name: docker
+    enabled: true
+    state: started
+
+- name: Verify Docker Compose
+  ansible.builtin.command: /usr/bin/docker-compose version
+  changed_when: false

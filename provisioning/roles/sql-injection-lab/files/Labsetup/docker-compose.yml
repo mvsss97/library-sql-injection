@@ -1,0 +1,70 @@
+version: "2.4"
+
+services:
+  mysql:
+    build: ./image_mysql
+    image: seed-sqli-mysql:8.0.22
+    command: ["--default-authentication-plugin=mysql_native_password", "--skip-name-resolve"]
+    environment:
+      MYSQL_ROOT_PASSWORD: dees
+      MYSQL_DATABASE: sqllab_users
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - db-data:/var/lib/mysql
+    networks:
+      lab-internal:
+        ipv4_address: 172.30.27.11
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  www:
+    build: ./image_www
+    image: seed-sqli-www:php82
+    environment:
+      DB_HOST: mysql
+      DB_NAME: sqllab_users
+      DB_USER: seed
+      DB_PASSWORD: dees
+      DEFENSE_DB_USER: defense_ro
+      DEFENSE_DB_PASSWORD: dees
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:80:80"
+    volumes:
+      - "${DEFENSE_DIR:-./image_www/Code/defense}:/var/www/SQL_Injection/defense:ro"
+    networks:
+      lab-internal:
+        ipv4_address: 172.30.27.10
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -H 'Host: www.seed-server.com' http://127.0.0.1/healthz.php"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  lab-internal:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.27.0/24
+
+volumes:
+  db-data:
