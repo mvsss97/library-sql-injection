@@ -1,0 +1,8 @@
+# Minimal inventory used only for ansible-playbook --syntax-check.
+all:
+  children:
+    hosts:
+      hosts:
+        seed:
+          ansible_connection: local
+    routers: {}

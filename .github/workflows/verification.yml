@@ -1,0 +1,60 @@
+name: Verification
+
+on:
+  push:
+    branches: [main, verification]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verification-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ANSIBLE_FORCE_COLOR: "0"
+  ANSIBLE_RETRY_FILES_ENABLED: "0"
+  ANSIBLE_STDOUT_CALLBACK: default
+  PY_COLORS: "0"
+
+jobs:
+  static:
+    name: Metadata, PHP, C and Ansible
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install validation tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gcc libcurl4-openssl-dev libssl-dev php-cli binutils > /dev/null
+          pip install -q "ansible==9.*" PyYAML
+      - name: Run static validation
+        run: bash ci/static.sh
+
+  application:
+    name: Compose smoke and four student checks
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install checker dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gcc libcurl4-openssl-dev libssl-dev php-cli > /dev/null
+      - name: Build and exercise the lab
+        run: bash ci/integration.sh
+      - name: Show service logs after failure
+        if: failure()
+        run: |
+          export DEFENSE_DIR="${{ runner.temp }}/unused-defense"
+          bash ci/cleanup.sh || true
